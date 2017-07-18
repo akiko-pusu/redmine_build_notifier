@@ -29,6 +29,8 @@ import java.net.URL;
 import java.text.MessageFormat;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Notifier that add link to target issue and posts build summary to
@@ -37,10 +39,12 @@ import java.util.List;
  * @author akiko_pusu
  */
 public class RedmineBuildNotifier extends Notifier {
+    private final static String DEFAULT_GIT_BRANCH_PREFIX = "task-";
 
     private String redmineUrl;
     private String redmineApiKey;
     private String shouldPost;
+    private String gitBranchPrefix;
 
     // TODO: Enable to customize of post message. Now default Redmine wiki formatting.
     private static final String REPORT_FORMAT
@@ -48,13 +52,19 @@ public class RedmineBuildNotifier extends Notifier {
 
     // Fields in config.jelly must match the parameter names in the "DataBoundConstructor"
     @DataBoundConstructor
-    public RedmineBuildNotifier(String redmineUrl, String redmineApiKey, String shouldPost) {
+    public RedmineBuildNotifier(String redmineUrl,
+                                String redmineApiKey,
+                                String shouldPost,
+                                String gitBranchPrefix
+    ) {
         if (redmineUrl == null) {
             throw new IllegalArgumentException(Messages.redmineUrl_required());
         }
+
         this.redmineUrl = redmineUrl;
         this.redmineApiKey = redmineApiKey;
         this.shouldPost = shouldPost;
+        this.gitBranchPrefix = gitBranchPrefix;
     }
 
     public String getRedmineUrl() {
@@ -69,12 +79,20 @@ public class RedmineBuildNotifier extends Notifier {
         return shouldPost;
     }
 
+    public String getGitBranchPrefix() {
+        return gitBranchPrefix;
+    }
+
     public void setRedmineUrl(String redmineUrl) {
         this.redmineUrl = redmineUrl;
     }
 
     public void setRedmineApiKey(String redmineApiKey) {
         this.redmineApiKey = redmineApiKey;
+    }
+
+    public void setGitBranchPrefix(String gitBranchPrefix) {
+        this.gitBranchPrefix = gitBranchPrefix;
     }
 
     @Override
@@ -91,8 +109,15 @@ public class RedmineBuildNotifier extends Notifier {
             throws InterruptedException, IOException {
         EnvVars envVars = build.getEnvironment(TaskListener.NULL);
 
+        String redmineIssueID = getIssueIdFromGitBranch(envVars);
         // TODO: Enable to get redmineIssueID not from envVars but some othe way if possible.
-        String redmineIssueID = envVars.get("REDMINE_ISSUE_ID");
+        if (null == redmineIssueID || redmineIssueID.equals("")) {
+            redmineIssueID = envVars.get("REDMINE_ISSUE_ID");
+        } else {
+            listener.getLogger()
+                    .println(
+                            "[RedmineBuildNotifier] Redmine IssueID from git branch = " + redmineIssueID);
+        }
 
         if (redmineIssueID == null || redmineIssueID.isEmpty()) {
             listener.getLogger()
@@ -133,7 +158,7 @@ public class RedmineBuildNotifier extends Notifier {
 
         /* Form validation */
         public FormValidation doCheckRedmineUrl(@QueryParameter String value) {
-            if (value == null || value == "") {
+            if (value == null || value.equals("")) {
                 return FormValidation.error(Messages.redmineUrl_required());
             }
             try {
@@ -146,7 +171,8 @@ public class RedmineBuildNotifier extends Notifier {
 
         /* Form validation */
         public FormValidation doTestConnection(@QueryParameter("redmineUrl") final String redmineUrl,
-                                               @QueryParameter("redmineApiKey") final String redmineApiKey) throws IOException, ServletException {
+                                               @QueryParameter("redmineApiKey") final String redmineApiKey
+        ) throws IOException, ServletException {
             try {
                 RedmineManager mgr = RedmineManagerFactory.createWithApiKey(redmineUrl, redmineApiKey);
                 User u = mgr.getUserManager().getCurrentUser();
@@ -172,7 +198,7 @@ public class RedmineBuildNotifier extends Notifier {
     private String tryGetIssues(RedmineManager mgr, Integer issueId, String note) throws Exception {
         IssueManager imgr = mgr.getIssueManager();
         Issue issue = imgr.getIssueById(issueId);
-        if (this.shouldPost == "true") {
+        if (this.shouldPost.equals("true")) {
             issue.setNotes(note);
             imgr.update(issue);
         }
@@ -188,7 +214,7 @@ public class RedmineBuildNotifier extends Notifier {
 
         EnvVars envVars = build.getEnvironment(TaskListener.NULL);
         String buildUrl = envVars.get("BUILD_URL");
-        if (buildUrl == null || buildUrl.isEmpty() || buildUrl != "null") {
+        if (buildUrl == null || buildUrl.equals("") || !buildUrl.equals("null")) {
             buildUrl = " (" + buildUrl + ")";
         } else {
             buildUrl = "";
@@ -219,5 +245,26 @@ public class RedmineBuildNotifier extends Notifier {
         }
 
         return StringUtils.join(causeNames, ", ");
+    }
+
+    private String getIssueIdFromGitBranch(EnvVars envVars) {
+        if (null == gitBranchPrefix || gitBranchPrefix.equals("")) {
+            return null;
+        }
+
+        String gitBranch = envVars.get("GIT_BRANCH", null);
+
+        if (null == gitBranch) {
+            return null;
+        }
+
+        Pattern pattern = Pattern.compile(gitBranchPrefix + "(\\d+)");
+        Matcher matcher = pattern.matcher(gitBranch);
+
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+
+        return null;
     }
 }

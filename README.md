@@ -24,6 +24,8 @@ And to post build summary to target issue via Redmine API. (Optionally)
 * And you can set REDMINE_ISSUE_ID via build parameter.
 * If a build related to issue, link to target issue is shown at left side.
 * Optionally, you can post build summary to target issue via Redmine API.
+* Redmine issue id can be retrieved from git branch name. You can specify "Git branch prefix" in plugin settings.
+**Example:** Git branch prefix = "task-", git branch name = "task-1" then redmine issue id = "1". 
 
 Requirements
 -------------
